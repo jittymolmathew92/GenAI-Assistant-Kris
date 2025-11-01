@@ -1,5 +1,5 @@
 {
-    "project": "GenAI Requirement Engineering Assistant",
+    "project": "GenAI Requirement Engineering Assistant - Kris",
     "description": "The AI Assistant adapts its answers based on user role (Business Analyst, Architect, Designer, Developer).",
     "global_rules": {
         "clarify_assumptions": true,
