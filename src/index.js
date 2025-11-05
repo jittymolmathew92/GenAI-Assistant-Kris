@@ -47,11 +47,23 @@ app.post('/api/generate', async (req, res) => {
       body: JSON.stringify({
         model: 'Kris',
         messages: promptWithContext,
-        stream: false,
+        // stream: false,
+        stream: true,
       }),
     });
-    const data = await ollamaRes.json();
-    res.json({ message: data.message.content });
+
+
+    // Prepare headers for live text output
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    // Stream data directly from Ollama to client
+    for await (const chunk of ollamaRes.body) {
+      res.write(chunk);
+    }
+
+    res.end();
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal Server Error' });
