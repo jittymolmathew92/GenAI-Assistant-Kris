@@ -1,141 +1,455 @@
 {
-    "project": "GenAI Requirement Engineering Assistant - Kris",
-    "description": "The AI Assistant adapts its answers based on user role (Business Analyst, Architect, Designer, Developer).",
-    "global_rules": {
-        "clarify_assumptions": true,
-        "structured_answers": true,
-        "tag_recommendations": [
-            "must",
-            "should",
-            "nice-to-have"
-        ],
-        "include_artefacts": true,
-        "state_unknowns": true,
-        "role_adaptation": true
+  "name": "GenAI - Requirement Engineering Assistant",
+  "version": "1.0",
+  "description": "Context extension to help a Business Analyst (BA) create high-quality user stories, functional requirements, non-functional requirements, constraints, and acceptance criteria for any specific domain based on a short prompt. Produces machine- and human-readable output suitable for Jira/Dev backlog items and QA test cases.",
+  "usage_summary": "Provide a short domain prompt and optional context (user persona, priority, scope, constraints). The extension returns a complete user story package: title, user story, functional requirements, non-functional requirements (measurable), constraints, acceptance criteria in Given-When-Then format, and suggested test cases and tags.",
+  "generation_rules": {
+    "tone": "Clear, concise, business-oriented. Use plain language for stakeholders and testable language for engineers and QA.",
+    "phrasing": "Use 'As a <role>, I want <goal>, so that <benefit>' for the user story. Use 'The system shall...' for functional requirements. Make NFRs measurable where possible.",
+    "atomicity": "Each functional requirement should be atomic (one action/behaviour). Avoid mixing multiple behaviours in one FR.",
+    "measurability": "Every non-functional requirement must include a metric or acceptance threshold (e.g., '≤ 2s response time', '99.95% uptime').",
+    "acceptance_criteria_style": "Prefer Given–When–Then format. Each AC should be specific and testable; aim for 3–6 ACs per user story.",
+    "ids_and_naming": "IDs follow patterns: US-xxx (user story), FR-xxx (functional), NFR-xxx (non-functional), C-xxx (constraint), AC-xxx (acceptance criteria), TC-xxx (test case). Preserve referential integrity across sections.",
+    "output_format": "Return as strict JSON following the provided output_schema. Use arrays for lists. Do not include explanations outside the JSON object.",
+    "domain_coverage": "Works for any domain (finance, healthcare, e-commerce, telecom, gov, enterprise apps, embedded systems). When domain-specific compliance or terminology exists (e.g., HIPAA, PSD2), include a 'Compliance' entry under Constraints when the prompt mentions it or the domain implies it.",
+    "edge_cases": "If the prompt is ambiguous or missing key context (e.g., user role), assume a common stakeholder: 'end user' for consumer-facing domains, 'staff' for internal systems. Still mark assumed fields in output under 'assumptions'."
+  },
+  "input_template": {
+    "prompt": "Short human prompt describing domain and goal (required)",
+    "optional_fields": {
+      "primary_persona": "string (e.g., 'Customer', 'Procurement Manager', 'Nurse')",
+      "priority": "string (High | Medium | Low)",
+      "scope": "string (MVP | Full | Enhancement)",
+      "known_constraints": "array of strings",
+      "regulatory_requirements": "array of strings (e.g., 'GDPR', 'HIPAA')",
+      "performance_targets": "object (e.g., {\"response_time_ms\": 2000})",
+      "locale": "string (e.g., 'US', 'EU', 'DE')"
     },
-    "roles": {
-        "BA": {
-            "title": "Business Analyst",
-            "tone": "Inquisitive, stakeholder-focused, plain English",
-            "priorities": [
-                "Discover and validate requirements",
-                "Map business goals to measurable acceptance criteria",
-                "Produce clear user stories and traceability"
-            ],
-            "deliverables": [
-                "User stories with acceptance criteria",
-                "Process flows",
-                "Requirement traceability matrix",
-                "Prioritization suggestions"
-            ],
-            "example_prompt": "Prepare a user story for 'Create invoice'. Include acceptance criteria, API dependencies, and test cases."
+    "example": {
+      "prompt": "Allow customers to save multiple shipping addresses and choose one during checkout.",
+      "primary_persona": "Customer",
+      "priority": "High",
+      "scope": "MVP",
+      "known_constraints": ["Must integrate with existing user profile service"],
+      "regulatory_requirements": [],
+      "performance_targets": {
+        "response_time_ms": 2000
+      },
+      "locale": "US"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^US-\\d{3}$" },
+          "title": { "type": "string" },
+          "priority": { "type": "string" },
+          "scope": { "type": "string" },
+          "primary_persona": { "type": "string" },
+          "created_by": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "assumptions": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } }
         },
-        "Architect": {
-            "title": "Solution Architect",
-            "tone": "Structural, high-level, risk-aware",
-            "priorities": [
-                "System decomposition and scalability",
-                "Security and integration patterns",
-                "Technology selection"
-            ],
-            "deliverables": [
-                "Architecture diagrams",
-                "Sequence diagrams",
-                "NFR checklist",
-                "Deployment notes"
-            ],
-            "example_prompt": "Design an architecture for a multi-tenant SaaS with React frontend and Node backend, including session management and autoscaling."
-        },
-        "Designer": {
-            "title": "Product/UX Designer",
-            "tone": "User-centered, visual-thinking, concise",
-            "priorities": [
-                "UX flows and wireframes",
-                "Accessibility and responsiveness",
-                "User research insights"
-            ],
-            "deliverables": [
-                "User flows",
-                "Wireframe descriptions",
-                "Accessibility checklist",
-                "UI acceptance criteria"
-            ],
-            "example_prompt": "Create a signup flow for mobile-first users with validation and accessibility details."
-        },
-        "Developer": {
-            "title": "Frontend/Backend Developer",
-            "tone": "Pragmatic, code-focused, implementation-oriented",
-            "priorities": [
-                "Code quality and performance",
-                "API integration and edge cases",
-                "Security-focused details"
-            ],
-            "deliverables": [
-                "Code snippets and API routes",
-                "Unit and integration test outlines",
-                "Build/run configurations"
-            ],
-            "example_prompt": "Show a React component for invoice download that calls /api/invoices/:id/pdf and handles errors."
+        "required": ["id", "title", "priority", "scope", "primary_persona", "created_by", "created_at"]
+      },
+      "user_story": {
+        "type": "string",
+        "description": "As a <role>, I want <goal>, so that <benefit>."
+      },
+      "description": { "type": "string" },
+      "functional_requirements": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^FR-\\d{3}$" },
+            "description": { "type": "string" },
+            "priority": { "type": "string" },
+            "notes": { "type": "string" }
+          },
+          "required": ["id", "description"]
         }
-    },
-    "templates": {
-        "user_story": {
-            "title": "",
-            "as_a": "",
-            "i_want": "",
-            "so_that": "",
-            "acceptance_criteria": [],
-            "dependencies": [],
-            "notes": []
-        },
-        "api_contract": {
-            "method": "",
-            "path": "",
-            "parameters": [],
-            "request_example": {},
-            "response_example": {},
-            "security": {}
-        },
-        "ux_spec": {
-            "screens": [],
-            "interactions": [],
-            "accessibility": [],
-            "responsive_breakpoints": []
-        },
-        "task_breakdown": {
-            "backend": [],
-            "frontend": [],
-            "tests": [],
-            "devops": []
+      },
+      "non_functional_requirements": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^NFR-\\d{3}$" },
+            "category": { "type": "string" },
+            "description": { "type": "string" },
+            "metric": { "type": "string" },
+            "priority": { "type": "string" }
+          },
+          "required": ["id", "category", "description", "metric"]
         }
+      },
+      "constraints": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^C-\\d{3}$" },
+            "description": { "type": "string" },
+            "type": { "type": "string" },
+            "impact": { "type": "string" }
+          },
+          "required": ["id", "description"]
+        }
+      },
+      "acceptance_criteria": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^AC-\\d{3}$" },
+            "description": { "type": "string" },
+            "given": { "type": "string" },
+            "when": { "type": "string" },
+            "then": { "type": "string" },
+            "related_requirement_ids": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["id", "given", "when", "then"]
+        }
+      },
+      "test_cases": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^TC-\\d{3}$" },
+            "title": { "type": "string" },
+            "steps": { "type": "array", "items": { "type": "string" } },
+            "expected_result": { "type": "string" },
+            "related_ac_ids": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["id", "title", "steps", "expected_result"]
+        }
+      },
+      "estimation": {
+        "type": "object",
+        "properties": {
+          "story_points": { "type": ["integer", "null"] },
+          "t_shirt_size": { "type": ["string", "null"] }
+        }
+      },
+      "notes_and_rationale": { "type": "string" }
     },
-    "nfr_checklist": {
-        "performance": "Page load <2s on 3G",
-        "scalability": "Stateless Node instances behind load balancer",
-        "security": "OWASP Top 10 mitigation, JWT auth, rate limiting",
-        "observability": "Structured logs, tracing, error budgets"
-    },
-    "session_variables": {
-        "role": [
-            "BA",
-            "Architect",
-            "Designer",
-            "Developer",
-            "mixed"
-        ],
-        "project_name": "",
-        "stack": {
-            "frontend": "React",
-            "backend": "Node",
-            "db": "PostgreSQL"
+    "required": ["metadata", "user_story", "functional_requirements", "acceptance_criteria"]
+  },
+  "prompt_template_for_model": "You are a Business Analyst assistant. Input: {prompt}. Optional: persona={primary_persona}, priority={priority}, scope={scope}, constraints={known_constraints}, regs={regulatory_requirements}, perf={performance_targets}, locale={locale}. Produce a JSON object that conforms exactly to the output_schema. Include assumptions if you had to infer missing context. Create: a user story (As a..., I want..., so that...), a short description, 3–6 functional requirements (FR-###), 2–5 measurable non-functional requirements (NFR-###), listed constraints (C-###), 3–6 acceptance criteria using Given/When/Then (AC-###) referencing FR/NFR IDs where relevant, and at least 2 test cases (TC-###). Keep FRs atomic and NFRs measurable. If regulatory requirements are provided or domain implies them, add those to Constraints with type 'Regulatory'.",
+  "examples": [
+    {
+      "input": {
+        "prompt": "Allow customers to save multiple shipping addresses and choose one during checkout.",
+        "primary_persona": "Customer",
+        "priority": "High",
+        "scope": "MVP",
+        "known_constraints": ["Integrate with existing user profile service"],
+        "regulatory_requirements": [],
+        "performance_targets": { "response_time_ms": 2000 },
+        "locale": "US"
+      },
+      "output": {
+        "metadata": {
+          "id": "US-001",
+          "title": "Manage multiple shipping addresses in user profile and select during checkout",
+          "priority": "High",
+          "scope": "MVP",
+          "primary_persona": "Customer",
+          "created_by": "BA Assistant",
+          "created_at": "2025-11-05T12:00:00Z",
+          "assumptions": [
+            "Users are authenticated prior to adding addresses",
+            "Address validation service exists or will be implemented later"
+          ],
+          "tags": ["ecommerce", "checkout", "profile"]
         },
-        "constraints": "",
-        "priorities": []
+        "user_story": "As a Customer, I want to save and manage multiple shipping addresses in my profile and select one during checkout so that I can quickly ship orders to different locations without re-entering address details.",
+        "description": "Provide a UI and backend support to add, edit, remove, set default, and select saved addresses during checkout.",
+        "functional_requirements": [
+          {
+            "id": "FR-001",
+            "description": "The system shall allow an authenticated user to add a new shipping address to their profile.",
+            "priority": "High",
+            "notes": "Address fields: name, street, city, state, postal code, country, phone"
+          },
+          {
+            "id": "FR-002",
+            "description": "The system shall allow a user to edit or delete any saved shipping address.",
+            "priority": "High"
+          },
+          {
+            "id": "FR-003",
+            "description": "The system shall allow a user to mark one address as the default shipping address.",
+            "priority": "Medium"
+          },
+          {
+            "id": "FR-004",
+            "description": "During checkout, the system shall present the user's saved addresses and allow selection of one to be used for the order.",
+            "priority": "High",
+            "notes": "If none exists, show 'Add new address' flow."
+          }
+        ],
+        "non_functional_requirements": [
+          {
+            "id": "NFR-001",
+            "category": "Performance",
+            "description": "Saved addresses must load in the checkout address selection within acceptable time.",
+            "metric": "Addresses list loads within 1000 ms 95% of the time under normal load",
+            "priority": "High"
+          },
+          {
+            "id": "NFR-002",
+            "category": "Security",
+            "description": "Address data at rest and in transit must be protected.",
+            "metric": "Data encrypted in transit (TLS 1.2+) and at rest using AES-256",
+            "priority": "High"
+          }
+        ],
+        "constraints": [
+          {
+            "id": "C-001",
+            "description": "Must integrate with existing user profile service for storage and retrieval of addresses.",
+            "type": "Technical",
+            "impact": "High"
+          }
+        ],
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "description": "Add Address Success",
+            "given": "Given an authenticated user on the 'Add Address' screen",
+            "when": "When they submit valid address details and click Save",
+            "then": "Then the address is stored in their profile and visible in the saved addresses list (FR-001)",
+            "related_requirement_ids": ["FR-001"]
+          },
+          {
+            "id": "AC-002",
+            "description": "Select Address in Checkout",
+            "given": "Given a user with two saved addresses during checkout",
+            "when": "When the user selects an address and confirms the order",
+            "then": "Then the selected address is used for order fulfillment (FR-004)",
+            "related_requirement_ids": ["FR-004"]
+          },
+          {
+            "id": "AC-003",
+            "description": "Load Performance",
+            "given": "Given normal system load",
+            "when": "When a user opens checkout address selection",
+            "then": "Then the saved addresses list loads in ≤1000 ms 95% of the time (NFR-001)",
+            "related_requirement_ids": ["NFR-001"]
+          }
+        ],
+        "test_cases": [
+          {
+            "id": "TC-001",
+            "title": "Add a valid address",
+            "steps": [
+              "Log in as an existing user",
+              "Navigate to Profile -> Addresses -> Add Address",
+              "Enter valid address data",
+              "Click Save"
+            ],
+            "expected_result": "New address appears in saved addresses list",
+            "related_ac_ids": ["AC-001"]
+          },
+          {
+            "id": "TC-002",
+            "title": "Select saved address at checkout",
+            "steps": [
+              "Log in as user with saved addresses",
+              "Add an item to cart and go to checkout",
+              "Open shipping address selector and choose an address",
+              "Complete the order"
+            ],
+            "expected_result": "Order confirmation shows chosen shipping address",
+            "related_ac_ids": ["AC-002"]
+          }
+        ],
+        "estimation": {
+          "story_points": 5,
+          "t_shirt_size": "S"
+        },
+        "notes_and_rationale": "MVP avoids automatic address validation by third-party API; address validation can be added later as a separate story."
+      }
     },
-    "multi_role_pattern": [
-        "BA: user story and acceptance criteria",
-        "Architect: architecture and NFR notes",
-        "Designer: UI flow and accessibility notes",
-        "Developer: code or tasks"
+    {
+      "input": {
+        "prompt": "Allow patients to book, reschedule, and cancel telemedicine appointments with a doctor.",
+        "primary_persona": "Patient",
+        "priority": "High",
+        "scope": "Full",
+        "known_constraints": ["Must comply with HIPAA"],
+        "regulatory_requirements": ["HIPAA"],
+        "performance_targets": { "video_connection_latency_ms": 300 },
+        "locale": "US"
+      },
+      "output": {
+        "metadata": {
+          "id": "US-002",
+          "title": "Telemedicine appointment booking, reschedule, and cancellation",
+          "priority": "High",
+          "scope": "Full",
+          "primary_persona": "Patient",
+          "created_by": "BA Assistant",
+          "created_at": "2025-11-05T12:05:00Z",
+          "assumptions": [
+            "Providers' calendars are accessible via API",
+            "User authentication and patient consent is already functional"
+          ],
+          "tags": ["healthcare", "telemedicine", "appointments"]
+        },
+        "user_story": "As a Patient, I want to book, reschedule, and cancel telemedicine appointments with a doctor so that I can receive care remotely at convenient times.",
+        "description": "End-to-end flows for booking, rescheduling, cancelling, and receiving telemedicine appointment confirmations and reminders. Includes scheduling rules, provider availability, and secure video link generation.",
+        "functional_requirements": [
+          {
+            "id": "FR-001",
+            "description": "The system shall allow a patient to search for available telemedicine slots by provider and date range.",
+            "priority": "High"
+          },
+          {
+            "id": "FR-002",
+            "description": "The system shall allow a patient to book an available telemedicine slot which creates an appointment record and sends confirmation.",
+            "priority": "High"
+          },
+          {
+            "id": "FR-003",
+            "description": "The system shall allow a patient to reschedule an upcoming appointment subject to provider availability and scheduling rules.",
+            "priority": "Medium"
+          },
+          {
+            "id": "FR-004",
+            "description": "The system shall allow a patient to cancel an appointment and notify the provider and patient.",
+            "priority": "Medium"
+          },
+          {
+            "id": "FR-005",
+            "description": "The system shall generate a secure video session link for the appointment and deliver it to the patient and provider prior to the appointment.",
+            "priority": "High"
+          }
+        ],
+        "non_functional_requirements": [
+          {
+            "id": "NFR-001",
+            "category": "Security",
+            "description": "All appointment and patient data must be stored and transmitted in compliance with HIPAA.",
+            "metric": "Encryption in transit (TLS 1.2+) and at rest; access audit logs enabled for all appointment data",
+            "priority": "High"
+          },
+          {
+            "id": "NFR-002",
+            "category": "Performance",
+            "description": "Video session link and calendar data should load quickly for the user.",
+            "metric": "Video link generation and appointment retrieval within 500 ms 95% of the time",
+            "priority": "High"
+          }
+        ],
+        "constraints": [
+          {
+            "id": "C-001",
+            "description": "System must comply with HIPAA requirements for PHI handling.",
+            "type": "Regulatory",
+            "impact": "High"
+          },
+          {
+            "id": "C-002",
+            "description": "Provider calendars are read-only; write operations must go through provider scheduling API.",
+            "type": "Technical",
+            "impact": "Medium"
+          }
+        ],
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "description": "Book Appointment Success",
+            "given": "Given a patient searching provider availability",
+            "when": "When the patient selects an available slot and confirms booking",
+            "then": "Then an appointment is created, patient and provider get confirmations, and a secure video link is generated (FR-002, FR-005)",
+            "related_requirement_ids": ["FR-002", "FR-005"]
+          },
+          {
+            "id": "AC-002",
+            "description": "Reschedule Appointment",
+            "given": "Given a patient with an upcoming appointment",
+            "when": "When the patient requests to reschedule and selects a new available slot",
+            "then": "Then the appointment is updated and both parties receive notifications (FR-003)",
+            "related_requirement_ids": ["FR-003"]
+          },
+          {
+            "id": "AC-003",
+            "description": "HIPAA Compliance for Data Storage",
+            "given": "Given stored appointment data",
+            "when": "When an admin reviews storage configuration",
+            "then": "Then data at rest is encrypted and access is logged (NFR-001)",
+            "related_requirement_ids": ["NFR-001"]
+          }
+        ],
+        "test_cases": [
+          {
+            "id": "TC-001",
+            "title": "Book telemedicine appointment and receive video link",
+            "steps": [
+              "Log in as patient",
+              "Search provider availability",
+              "Select a slot and confirm booking",
+              "Check email/portal for confirmation and video link"
+            ],
+            "expected_result": "Appointment record exists; patient and provider receive confirmations with secure video link",
+            "related_ac_ids": ["AC-001"]
+          },
+          {
+            "id": "TC-002",
+            "title": "Reschedule an appointment",
+            "steps": [
+              "Log in as patient",
+              "Go to upcoming appointments",
+              "Select reschedule, pick new slot, confirm",
+              "Check notifications"
+            ],
+            "expected_result": "Appointment time updated; notifications sent to patient and provider",
+            "related_ac_ids": ["AC-002"]
+          }
+        ],
+        "estimation": {
+          "story_points": 13,
+          "t_shirt_size": "L"
+        },
+        "notes_and_rationale": "Because of regulatory constraints, end-to-end encryption and audit trails are required; coordination with provider APIs is necessary for availability."
+      }
+    }
+  ],
+  "validation_checks": [
+    "Ensure every NFR has a 'metric' field with a measurable target.",
+    "Ensure each AC uses Given/When/Then and references at least one FR/NFR where applicable.",
+    "Ensure FR/NFR/AC/TC IDs are unique within the generated package and follow ID patterns."
+  ],
+  "final_notes": "Use this context extension to seed automated or semi-automated BA assistance. The model using this extension should strictly output JSON conforming to output_schema to allow direct ingestion into backlog management tools. If any required context is missing in the user's prompt, include assumptions (clearly flagged) and produce a reasonable default implementation.",
+   "instructional_guidelines": {
+    "tone": "professional, analytical, and concise",
+    "style": "IEEE 29148-2018 and BABOK-aligned terminology",
+    "response_focus": [
+      "clarity of requirements",
+      "avoidance of ambiguity",
+      "validation criteria",
+      "testability",
+      "stakeholder traceability"
+    ],
+    "avoid": [
+      "subjective assumptions",
+      "vague language",
+      "unverifiable statements"
     ]
+  },
+  "prompt_templates": {
+    "elicitation": "Generate a list of questions to elicit {requirement_type} from {stakeholder_type}.",
+    "analysis": "Analyze the following requirement for ambiguity, completeness, and feasibility:\n\n{requirement_text}",
+    "validation": "Validate whether the following requirement is SMART (Specific, Measurable, Achievable, Relevant, Time-bound):\n\n{requirement_text}",
+    "user_story": "Convert this requirement into a user story with acceptance criteria:\n\n{requirement_text}",
+    "traceability": "Create a traceability matrix linking requirements to test cases and design components for:\n\n{project_scope}"
+  }
 }
